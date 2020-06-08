@@ -12,6 +12,7 @@ library(ggplot2)
 library(lubridate)
 library(chron)
 library(dplyr)
+library(xts)
 ```
 Set the working directory and read in data
 ```{r}
@@ -80,7 +81,7 @@ energy_data <- energy_data %>%
   group_by(Datetime) %>%
   summarise(sum(AEP_MW))
 ```
-
+Split data into train/test sets, cutting data with 1 full year of test data remaining
 ```{r}
 cut_value <- paste0(as.Date(max(energy_data$Datetime)) %m-% months(12), substring(test, 11,19))
 print(cut_value)
@@ -91,18 +92,16 @@ energy_data_train <- energy_data[-energy_data_test_ind,]
 
 
 ```{r}
-value <- rnorm(n = length(time_index))
-```
-
-```{r}
-ts_train <- ts(energy_data, start = c(2004,10,01), frequency = 365.25)
+start_date <- as.Date(min(energy_data_train$Datetime))
+energy_data_train$timestamp <- strptime(energy_data_train$Datetime, "%Y-%m-%d %H:%M:%S")
+ts_train <- xts(x = energy_data_train, order.by=energy_data_train$timestamp)
+#ts_train <- ts(energy_data_train, start = c(year(start_date),month(start_date), day(start_date)),
+#                                            frequency = 365.25)
 #msts can handle multiple seasonality (from the forecast package)
-components.ts = decompose(energy_data)
-plot(components.ts)
+#components.ts = decompose(energy_data)
+#plot(components.ts)
 ```
 
 
 When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
-
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
 
