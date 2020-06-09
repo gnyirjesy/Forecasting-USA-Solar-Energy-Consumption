@@ -13,6 +13,8 @@ library(lubridate)
 library(chron)
 library(dplyr)
 library(xts)
+library(gdata)
+library(forecast)
 ```
 Set the working directory and read in data
 ```{r}
@@ -31,9 +33,6 @@ Plot entire time series
 plot(energy_data$timestamp, energy_data$AEP_MW, xaxt="n", type = 'l')
 ```
 
-
-
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
 ```{r}
 min(energy_data$AEP_MW)
 ```
@@ -81,20 +80,35 @@ energy_data <- energy_data %>%
   group_by(Datetime) %>%
   summarise(sum(AEP_MW))
 ```
+Rename columns
+```{r}
+energy_data <- energy_data %>%
+  rename(
+    AEP_MW = `sum(AEP_MW)`
+  )
+```
+Impute n/a's with zero
+```{r}
+energy_data$AEP_MW[is.na(energy_data$AEP_MW)] <- 0
+```
+
 Split data into train/test sets, cutting data with 1 full year of test data remaining
 ```{r}
-cut_value <- paste0(as.Date(max(energy_data$Datetime)) %m-% months(12), substring(test, 11,19))
+cut_value <- paste0(as.Date(max(energy_data$Datetime)) %m-% months(12),
+                    substring(max(energy_data$Datetime), 11,19))
 print(cut_value)
 energy_data_test_ind <- which(energy_data$Datetime > "2017-08-03 00:00:00")
 energy_data_test <- energy_data[energy_data_test_ind,]
 energy_data_train <- energy_data[-energy_data_test_ind,]
 ```
 
-
+Turn data frame into a time series object
 ```{r}
 start_date <- as.Date(min(energy_data_train$Datetime))
-energy_data_train$timestamp <- strptime(energy_data_train$Datetime, "%Y-%m-%d %H:%M:%S")
-ts_train <- xts(x = energy_data_train, order.by=energy_data_train$timestamp)
+energy_data_train$timestamp <- as.POSIXct(energy_data_train$Datetime,
+                                          format="%Y-%m-%d %H:%M:%S",
+                                          tz='UTC')
+ts_train <- xts(x = energy_data_train$AEP_MW, order.by=energy_data_train$timestamp)
 #ts_train <- ts(energy_data_train, start = c(year(start_date),month(start_date), day(start_date)),
 #                                            frequency = 365.25)
 #msts can handle multiple seasonality (from the forecast package)
@@ -102,6 +116,59 @@ ts_train <- xts(x = energy_data_train, order.by=energy_data_train$timestamp)
 #plot(components.ts)
 ```
 
+View time series decomposition
+```{r}
+attr(ts_train, 'frequency') <- 8766
+periodicity(ts_train)
+plot(decompose(as.ts(ts_train))) 
+```
 
+```{r}
+best_fourier <- function(ts_train){
+  require(forecast)
+  models <- lapply(seq(1,6), function(j){
+    try(auto.arima(ts_train,
+                   xreg = fourier(ts_train, K=j),
+                   seasonal = FALSE,
+                   stepwise = FALSE,
+                   approximation = FALSE,
+                   ic = 'aicc'))
+  })
+  best_forecast <- which.min(sapply(models, function(x){x[['aicc']]}))
+  return(list(aicc = models[[best_forecast]]$aicc, model = models[[best_forecast]], k= best_forecast))
+}
+```
+```{r}
+best_arima <- function(ts_train){
+  require(forecast)
+  model <- try(auto.arima(ts_train,
+                          stepwise = FALSE,
+                          approximation = FALSE,
+                          seasonal = FALSE,
+                          ic = 'aicc'))
+  return(list(aicc = model$aicc, model = model))
+  
+}
+```
+
+Run the fourier model
+```{r}
+best_fourier_result <- best_fourier(ts_train)
+```
+```{r}
+forecast_data <- try(forecast(best_fourier_result$model, level=c(80,95), xreg = fourier(ts_train, K=best_fourier_result$k, h= 8579)))
+plot(forecast_data)
+```
+
+```{r}
+best_arima_result <- best_arima(ts_train)
+```
+```{r}
+forecast_data <- try(forecast(best_arima_result$model, level=c(80,95), h= 8579))
+plot(forecast_data)
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
 When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
 
