@@ -28,7 +28,7 @@ The following R packages were used for this project:
 * forecast_8.12
 * kableExtra_1.1.0
 * knitr_1.28
- 
+
 _*Data was collected by the [U.S. Energy Information Administration](https://www.eia.gov/opendata/qb.php?category=711302&sdid=TOTAL.SOTCBUS.A) and pulled through an API call in the code._
 
 ## Features
