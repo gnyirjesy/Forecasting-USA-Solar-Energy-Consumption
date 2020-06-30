@@ -1,4 +1,4 @@
-# Forecasting
+# Forecasting USA Solar Energy Consumption
 
 
 ## Table of contents
@@ -12,32 +12,40 @@
 * [Acknowledgements](#acknowledgements)
 
 ## General info
-The goal of this project is to develop a forecasting model to predict energy consumption.
+The goal of this project is to develop a forecasting model to predict solar energy consumption over the next 10 years. The consumption information can be used to help solar energy suppliers scale production to meet this demand.
 
 ## Technologies
 * RStudio
 
 ## Setup
-Use requirements.txt file to install required packages, or install packages and versions listed below:
+The following R packages were used for this project:
 
-* haven==2.3.0
-* ggplot2==3.3.0
-* lubridate==1.7.8
-* chron==2.3.55
-* dplyr==1.0.0
-* xts==0.12.0
-* gdata==2.18.0
-* forecast=8.12
-
-Data can be found on [Kaggle](https://www.kaggle.com/robikscube/hourly-energy-consumption)
+* jsonlite_1.7.0
+* httr_1.4.1  
+* dplyr_1.0.0
+* Metrics_0.1.4
+* zoo_1.8-8
+* forecast_8.12
+* kableExtra_1.1.0
+* knitr_1.28
+ 
+_*Data was collected by the [U.S. Energy Information Administration](https://www.eia.gov/opendata/qb.php?category=711302&sdid=TOTAL.SOTCBUS.A) and pulled through an API call in the code._
 
 ## Features
-
+The following forecasting methods are explored in this project:
+ 
+* Naive
+* ARIMA
+* ARIMA with Fourier components
+* ETS
 
 ## Results
+The table below shows that the ETS model had the best performance for this data set; the MAPE, RMSE, MAE, and MASE were all lowest with this model. The ARIMA model had the least bias, but higher values for the other metrics. The models are over-predicting the energy consumption, as can be seen from the positive bias values. 
 
-* MAPE, MAE
+![Forecast_Summary](Forecast_Summary_Stats.png)
 
+The plot below shows the ETS forecast for United States solar energy consumption over the next 10 years.
+![Forecast_Plot](Forecast_Plot.png)
 ## Status
 Project is: _in progress_
 
@@ -45,4 +53,4 @@ Project is: _in progress_
 Created by [Gabrielle Nyirjesy](https://www.linkedin.com/in/gabrielle-nyirjesy) - feel free to contact me!
 
 ## Acknowledgements
-* Data pulled from [Kaggle](https://www.kaggle.com/robikscube/hourly-energy-consumption)
+* Data was collected by the [U.S. Energy Information Administration](https://www.eia.gov/opendata/qb.php?category=711302&sdid=TOTAL.SOTCBUS.A)

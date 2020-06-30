@@ -1,0 +1,227 @@
+---
+title: "United States Solar Electric Energy Consumption"
+output: html_document
+---
+# Introduction
+This script explores trends in monthly United States solar electric energy consumption. Data was collected by the U.S. Energy Information Administration (https://www.eia.gov/).
+```{r setup, include=FALSE}
+#Install packages
+library(httr)
+library(jsonlite)
+library(dplyr)
+library(Metrics)
+library(zoo)
+library(knitr)
+library(kableExtra)
+library(scales)
+library(forecast)
+```
+
+# Setup
+Define Functions:
+```{r function-definitions}
+#Function to convert a PERIOD_ID (YYYYMM) to a date (MM/01/YYYY)
+period_to_date <- function(col){
+  DATE <- as.Date(paste(as.numeric(col) %% 100, 1,
+                                  round(as.numeric(col) %/% 100,0),
+                                  sep = "/"), "%m/%d/%Y")
+  return(DATE)
+}
+
+#Function to pull data using API call
+API_request <- function(API_call, API_key){
+  res = GET(sub('YOUR_API_KEY_HERE', API_key, API_call))
+  data = fromJSON(rawToChar(res$content))
+  consumption_data <- as.data.frame(data$series$data)
+  consumption_data <- consumption_data %>% 
+    rename(PERIOD_ID = X1,
+      TRILLION_MMBTU = X2)
+  consumption_data$DATE <- period_to_date(consumption_data$PERIOD_ID)
+  return(consumption_data)
+}
+
+#Function to run naive model
+naive_model <- function(ts_train, ts_test){
+  require(forecast)
+  model <- naive(ts_train, level=c(80,95), h=12)
+  plot(model)
+  lines(ts_test, col='red')
+  data_eval <- data.frame(actual_data=as.matrix(ts_test),
+                          date=as.Date(as.yearmon(time(ts_test))))
+  data_eval <- cbind(data_eval, predicted = model$mean)
+  return(list(aicc = model$aicc, model = model, data_eval = data_eval))
+}
+
+#Function to run ARIMA model without external regressors
+arima_model <- function(ts_train, ts_test){
+  require(forecast)
+  model <- auto.arima(ts_train,
+                          stepwise = FALSE,
+                          approximation = FALSE,
+                          seasonal = FALSE,
+                          ic = 'aicc')
+  forecast_data <- forecast(model, level=c(80,95), h= 12)
+  plot(forecast_data)
+  lines(ts_test, col='red')
+  data_eval <- data.frame(actual_data=as.matrix(ts_test),
+                          date=as.Date(as.yearmon(time(ts_test))))
+  data_eval <- cbind(data_eval, predicted = forecast_data$mean)
+  return(list(aicc = model$aicc, model = model, data_eval = data_eval))
+}
+
+#Function to run ARIMA model with Fourier component of different external regressors and pull out best performing forecast by aicc
+best_fourier <- function(ts_train, ts_test){
+  require(forecast)
+  models <- lapply(seq(1,6), function(j){
+    try(auto.arima(ts_train,
+                   xreg = fourier(ts_train, K=j),
+                   seasonal = FALSE,
+                   stepwise = FALSE,
+                   approximation = FALSE,
+                   ic = 'aicc'))
+  })
+  best_forecast <- which.min(sapply(models, function(x){x[['aicc']]}))
+  forecast_data <- forecast(models[[best_forecast]], level=c(80,95),
+                                xreg = fourier(ts_train, K=best_forecast,
+                                               h= 12))
+  plot(forecast_data)
+  lines(ts_test, col='red')
+  data_eval <- data.frame(actual_data=as.matrix(ts_test),
+                          date=as.Date(as.yearmon(time(ts_test))))
+  data_eval <- cbind(data_eval, predicted = forecast_data$mean)
+  return(list(aicc = models[[best_forecast]]$aicc,
+              model = models[[best_forecast]], k= best_forecast,
+              data_eval = data_eval))
+}
+
+# Function to run ETS model
+ets_model <- function(ts_train, ts_test){
+  require(forecast)
+  model <- ets(ts_train)
+  forecast_data <- forecast(model, level=c(80,95), h= 12)
+  plot(forecast_data)
+  lines(ts_test, col='red')
+  data_eval <- data.frame(actual_data=as.matrix(ts_test),
+                          date=as.Date(as.yearmon(time(ts_test))))
+  data_eval <- cbind(data_eval, predicted = forecast_data$mean)
+  return(list(aicc = model$aicc, model = model, data_eval = data_eval))
+}
+
+#Function to get model metrics
+get_metrics <- function(data_eval){
+  model_MAPE <- mape(data_eval$actual, data_eval$predicted)
+  model_RMSE <- round(rmse(data_eval$actual, data_eval$predicted), 2)
+  model_MAE <- round(mae(data_eval$actual, data_eval$predicted), 2)
+  model_MASE <- round(mase(data_eval$actual, data_eval$predicted), 2)
+  model_bias <- round(bias(data_eval$actual, data_eval$predicted),2)
+  metrics <- list(model_MAPE, model_RMSE, model_MASE, model_MAE, model_bias)
+  names(metrics) <- c('MAPE', 'RMSE', 'MAE', 'MASE', 'Bias')
+  metrics <- as.data.frame(metrics)
+  metrics$MAPE <- percent(metrics$MAPE, accuracy = 0.01)
+  return(metrics)
+}
+
+#Create summary table of all metrics results
+metrics_summary <- function(dfNames) {
+  do.call(rbind, lapply(dfNames, function(x) {
+    cbind(Model = strsplit(x,'_')[[1]][1], get(x))
+  }))
+}
+```
+
+Pull the data using the API request.
+```{r data-pull}
+api_key = 'b7369a57166eee9b3612e8774f172306'
+solar <- API_request("http://api.eia.gov/series/?api_key=YOUR_API_KEY_HERE&series_id=TOTAL.SOTCBUS.M", api_key)
+```
+
+# Data Exploration
+Convert consumption data to numeric, impute missing data with 0, and slice the data to remove time points before the first occurrence of solar energy consumption (where trillion_mmbtu > 0).
+```{r data-cleaning}
+solar$TRILLION_MMBTU <- as.numeric(solar$TRILLION_MMBTU)
+solar$TRILLION_MMBTU[is.na(solar$TRILLION_MMBTU)] <- 0
+solar <- solar[order(solar$DATE),]
+first_value <- which.max(solar$TRILLION_MMBTU > 0)
+solar <- solar %>% slice(first_value:n())
+```
+View the time series plot for solar energy consumption.
+```{r plot-full-data}
+plot(solar$DATE, solar$TRILLION_MMBTU, type = 'l')
+```
+
+Split data into train/test sets - leaving 1 year of data for performance evaluation.
+```{r train-test-split}
+#split where there are 12 remaining months left
+cut_loc <- which(solar$DATE > seq(max(solar$DATE), length=2, by="-1 years")[2])
+train_data <- solar[-cut_loc,]
+test_data <- solar[cut_loc,]
+```
+Create time series data train/test sets.
+```{r time series creation}
+start_year_train = as.numeric(format(as.Date(min(train_data$DATE), format="%d/%m/%Y"),"%Y"))
+start_month_train = as.numeric(format(as.Date(min(train_data$DATE), format="%d/%m/%Y"),"%m"))
+ts_train <- ts(train_data$TRILLION_MMBTU,
+               start = c(start_year_train, start_month_train), frequency = 12)
+
+start_year_test = as.numeric(format(as.Date(min(test_data$DATE), format="%d/%m/%Y"),"%Y"))
+start_month_test = as.numeric(format(as.Date(min(test_data$DATE), format="%d/%m/%Y"),"%m"))
+ts_test <- ts(test_data$TRILLION_MMBTU,start = c(start_year_test, start_month_test), frequency=12)
+```
+
+Explore the components of the time series train data.
+```{r ts-decomposition}
+fit <- stl(ts_train, s.window="period")
+plot(fit)
+```
+In the plots above, there is a similar seasonal trend throughout the entire time series. The trend in solar energy consumption begins increasing slowly in the late 1980's and then more rapidly increases beginning around 2012. The more rapid increase in 2012 may be due to policy changes in the United States including Production Tax Credits and Investment Tax Credits for solar energy and the American Reinvestment and Recovery Act of 2009.
+```{r}
+# additional plots
+seasonplot(ts_train)
+```
+The seasonal plot above shows that the most solar electric energy is consumed during the summer months. This trend is most likely due to an increase in air-conditioning usage during the hotter months of the year.
+# Forecast Models
+Now that I have explored the trends in the data, I will begin exploring forecast models.
+First, I will create a baseline forecast using a naive model.
+```{r}
+naive_results <- naive_model(ts_train, ts_test)
+```
+In addition to viewing the forecast plot, I will also quantify the model performance using several model metrics, including mean absolute percentage error (MAPE), root mean squared error (RMSE), mean absolute error (MAE), mean absolute scaled error (MASE) and bias. 
+```{r}
+naive_metrics <- get_metrics(naive_results$data_eval)
+kable(as.data.frame(naive_metrics) %>% select_all, caption = "Naive Forecast Metrics") %>% kable_styling(full_width = F, bootstrap_options = c("condensed"))
+```
+Now that the baseline is established, I will experiment with different time series forecasting models to find the best performing method. I will begin with an ARIMA model:
+```{r}
+best_arima_result <- arima_model(ts_train, ts_test)
+arima_metrics <- get_metrics(best_arima_result$data_eval)
+kable(as.data.frame(arima_metrics) %>% select_all, caption = "ARIMA Forecast Metrics") %>% kable_styling(full_width = F, bootstrap_options = c("condensed"))
+```
+
+Next, I will try adding Fourier components to the ARIMA forecast:
+```{r}
+best_fourier_result <- best_fourier(ts_train, ts_test)
+fourier_metrics <- get_metrics(best_fourier_result$data_eval)
+kable(as.data.frame(fourier_metrics) %>% select_all, caption = "ARIMA/Fourier Forecast Metrics") %>% kable_styling(full_width = F, bootstrap_options = c("condensed"))
+```
+
+Now, I will generate an ETS model:
+```{r}
+best_ets_result <- ets_model(ts_train, ts_test)
+ets_metrics <- get_metrics(best_ets_result$data_eval)
+kable(as.data.frame(ets_metrics) %>% select_all, caption = "ETS Forecast Metrics") %>% kable_styling(full_width = F, bootstrap_options = c("condensed"))
+```
+Print out the summary statistics below to compare the forecast models:
+```{r}
+summary_stats <- metrics_summary(c('naive_metrics', 'arima_metrics', 'fourier_metrics', 'ets_metrics'))
+kable(as.data.frame(summary_stats) %>% select_all, caption = "Summary Forecast Metrics") %>% kable_styling(full_width = F, bootstrap_options = c("condensed", "striped")) %>%
+  row_spec(which(summary_stats$RMSE == min(summary_stats$RMSE)),
+           bold = T, color = "white", background = "green") %>%
+  column_spec(1, bold=T)
+```
+The table above shows that the ETS model had the best performance for this data set; the MAPE, RMSE, MAE, and MASE were all lowest with this model. The ARIMA model had the least bias, but higher values for the other metrics. The models are over-predicting the energy consumption, as can be seen from the positive bias values. 
+# Final Forecast
+I can now apply the ETS model to predict United States solar electric energy consumption for the next 10 years.
+```{r}
+forecast_data <- forecast(best_ets_result$model, level=c(80,95), h= 120)
+plot(forecast_data)
+```
