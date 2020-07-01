@@ -45,7 +45,7 @@ The table below shows that the ETS model had the best performance for this data 
 ![Forecast_Summary](Forecast_Summary_Stats.png)
 
 The plot below shows the ETS forecast for United States solar energy consumption over the next 10 years.
-<img src="Forecast_Plot.png" />
+<img src="Forecast_Plot.PNG" />
 
 ## Status
 Project is: _complete_
