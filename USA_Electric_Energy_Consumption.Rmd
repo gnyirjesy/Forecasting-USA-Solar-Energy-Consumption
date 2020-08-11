@@ -243,3 +243,8 @@ I can now apply the ETS model to predict United States solar energy consumption 
 forecast_data <- forecast(best_ets_result$model, level=c(80,95), h= 120)
 plot(forecast_data, xlab="Date", ylab="Trillion Btu")
 ```
+```{r}
+#Export .Rmd as R code
+knitr::purl('USA_Electric_Energy_Consumption.Rmd')
+```
+
