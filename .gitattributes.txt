@@ -1,12 +1,3 @@
-# Source files
-# ============
-*.Rdata binary
-*.RData binary
-*.rda   binary
-*.rdb   binary
-*.rds   binary
-*.Rd    text
-*.Rdx   binary
-*.Rmd	  text
-*.R  	  text
-*.Rproj text
+* linguist-vendored
+*.R linguist-vendored=false
+*.html linguist-detectable=false
